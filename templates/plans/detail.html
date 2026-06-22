@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ plan.title }} - 实验计划详情{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div class="page-title">📚 {{ plan.title }}</div>
+    <div class="page-actions">
+        <a href="/plans" class="btn btn-outline btn-sm">← 返回列表</a>
+        {% if current_user.role == 'teacher' and current_user.id == plan.creator_id %}
+        <a href="/requests/new?plan_id={{ plan.id }}" class="btn btn-success btn-sm">📋 提交领用申请</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📋 计划信息</div>
+    </div>
+    <div class="card-body">
+        <div class="detail-grid">
+            <div class="detail-item">
+                <div class="detail-label">课程名称</div>
+                <div class="detail-value">{{ plan.course_name or '-' }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">班级</div>
+                <div class="detail-value">{{ plan.class_name or '-' }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">学生人数</div>
+                <div class="detail-value">{{ plan.student_count or 0 }} 人</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">计划日期</div>
+                <div class="detail-value">{{ plan.plan_date.strftime('%Y-%m-%d') }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">创建人</div>
+                <div class="detail-value">{{ plan.creator.full_name }} ({{ plan.creator.department }})</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">创建时间</div>
+                <div class="detail-value">{{ plan.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            </div>
+        </div>
+        {% if plan.description %}
+        <div class="mt-2">
+            <div class="detail-label mb-1">实验内容描述</div>
+            <div class="text-muted" style="white-space: pre-wrap;">{{ plan.description }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header flex-between">
+        <div class="card-title">📦 关联的领用申请（{{ plan.requests|length }} 条）</div>
+        {% if current_user.role == 'teacher' and current_user.id == plan.creator_id %}
+        <a href="/requests/new?plan_id={{ plan.id }}" class="btn btn-success btn-sm">➕ 新增申请</a>
+        {% endif %}
+    </div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>申请编号</th>
+                    <th>提交人</th>
+                    <th>紧急程度</th>
+                    <th>申请金额</th>
+                    <th>状态</th>
+                    <th>提交时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in plan.requests %}
+                <tr>
+                    <td>#{{ r.id }}</td>
+                    <td>{{ r.applicant.full_name }}</td>
+                    <td>
+                        {% if r.urgency == 'emergency' %}
+                        <span class="badge badge-danger">紧急</span>
+                        {% elif r.urgency == 'urgent' %}
+                        <span class="badge badge-warning">加急</span>
+                        {% else %}
+                        <span class="badge badge-default">普通</span>
+                        {% endif %}
+                    </td>
+                    <td>¥{{ "%.2f"|format(r.total_amount) }}</td>
+                    <td>
+                        {% set cls = 'badge-pending' if r.status == 'pending' else ('badge-approved' if r.status in ['approved','partially_approved'] else ('badge-rejected' if r.status == 'rejected' else 'badge-completed')) %}
+                        <span class="badge {{ cls }}">{{ STATUS_MAP.get(r.status, r.status) }}</span>
+                    </td>
+                    <td class="text-sm text-muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td><a href="/requests/{{ r.id }}" class="btn btn-outline btn-sm">查看</a></td>
+                </tr>
+                {% endfor %}
+                {% if not plan.requests %}
+                <tr>
+                    <td colspan="7" class="empty-state">
+                        <div class="empty-state-icon">📋</div>
+                        <div class="empty-state-text">暂无关联申请</div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

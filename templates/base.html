@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}校园实验耗材领用审批系统{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% block navbar %}
+<nav class="navbar">
+    <div class="navbar-brand">
+        <a href="/">🧪 校园实验耗材管理系统</a>
+    </div>
+    {% if current_user %}
+    <ul class="navbar-nav">
+        <li><a href="/" class="{% if request.url.path == '/' %}active{% endif %}">首页</a></li>
+        <li><a href="/supplies" class="{% if '/supplies' in request.url.path %}active{% endif %}">耗材库存</a></li>
+        {% if current_user.role == 'teacher' %}
+        <li><a href="/plans" class="{% if '/plans' in request.url.path %}active{% endif %}">实验计划</a></li>
+        {% endif %}
+        <li><a href="/requests" class="{% if '/requests' in request.url.path %}active{% endif %}">领用申请</a></li>
+        {% if current_user.role == 'keeper' and '/batches' in request.url.path %}{% endif %}
+        {% if current_user.role == 'keeper' %}
+        <li><a href="/batches/new" class="{% if '/batches' in request.url.path %}active{% endif %}">批次入库</a></li>
+        {% endif %}
+        {% if current_user.role == 'director' %}
+        <li><a href="/director/overview" class="{% if '/director' in request.url.path %}active{% endif %}">主任视图</a></li>
+        {% endif %}
+        {% if current_user.role in ['keeper', 'director'] %}
+        <li><a href="/export" class="{% if '/export' in request.url.path %}active{% endif %}">数据导出</a></li>
+        {% endif %}
+    </ul>
+    <div class="navbar-user">
+        <span>{{ current_user.full_name }}</span>
+        <span class="role-badge">{{ ROLE_MAP.get(current_user.role, current_user.role) }}</span>
+        <form action="/logout" method="post">
+            <button type="submit">退出</button>
+        </form>
+    </div>
+    {% endif %}
+</nav>
+{% endblock %}
+
+<div class="main-container">
+    {% block content %}{% endblock %}
+</div>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

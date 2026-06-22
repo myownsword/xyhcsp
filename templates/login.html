@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 校园实验耗材领用审批系统</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login-container">
+    <div class="login-card">
+        <h1>🧪 校园实验耗材管理</h1>
+        <p class="subtitle">领用审批系统</p>
+
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+
+        <form method="post" action="/login">
+            <input type="hidden" name="next" value="{{ next }}">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" name="username" class="form-control" required value="{{ username or '' }}" placeholder="请输入用户名">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" name="password" class="form-control" required placeholder="请输入密码">
+            </div>
+            <button type="submit" class="btn btn-primary">登 录</button>
+        </form>
+
+        <div class="demo-accounts">
+            <h4>演示账号（密码均为 123456）</h4>
+            <ul>
+                <li>👨‍🏫 <code>teacher1</code> - 张老师（化学系教师）</li>
+                <li>👩‍🔬 <code>teacher2</code> - 李老师（生物系教师）</li>
+                <li>📦 <code>keeper1</code> - 王库管（库管员）</li>
+                <li>👔 <code>director1</code> - 赵主任（化学系主任）</li>
+            </ul>
+        </div>
+    </div>
+</div>
+</body>
+</html>

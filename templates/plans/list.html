@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}实验计划管理{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div class="page-title">📚 实验课计划</div>
+    <div class="page-actions">
+        {% if current_user.role == 'teacher' %}
+        <a href="/plans/new" class="btn btn-primary btn-sm">➕ 创建实验计划</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>计划标题</th>
+                    <th>课程名称</th>
+                    <th>班级</th>
+                    <th>学生人数</th>
+                    <th>计划日期</th>
+                    <th>创建人</th>
+                    <th>关联申请</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in plans %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td><a href="/plans/{{ p.id }}"><strong>{{ p.title }}</strong></a></td>
+                    <td class="text-muted">{{ p.course_name or '-' }}</td>
+                    <td class="text-muted">{{ p.class_name or '-' }}</td>
+                    <td>{{ p.student_count or 0 }} 人</td>
+                    <td>{{ p.plan_date.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ p.creator.full_name }}</td>
+                    <td>
+                        {% if p.requests %}
+                        <span class="badge badge-approved">{{ p.requests|length }} 条</span>
+                        {% else %}
+                        <span class="text-muted text-sm">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-sm text-muted">{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>
+                        <a href="/plans/{{ p.id }}" class="btn btn-outline btn-sm">查看</a>
+                        {% if current_user.role == 'teacher' and current_user.id == p.creator_id %}
+                        <a href="/requests/new?plan_id={{ p.id }}" class="btn btn-success btn-sm">申请耗材</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not plans %}
+                <tr>
+                    <td colspan="10" class="empty-state">
+                        <div class="empty-state-icon">📚</div>
+                        <div class="empty-state-text">
+                            {% if current_user.role == 'teacher' %}
+                            还没有实验计划，点击右上角「创建实验计划」开始
+                            {% else %}
+                            暂无实验计划数据
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

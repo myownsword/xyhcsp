@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}操作错误{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:600px; margin:60px auto;">
+    <div class="card-body" style="text-align:center; padding:50px 30px;">
+        <div style="font-size:64px; margin-bottom:20px;">❌</div>
+        <h2 style="margin-bottom:16px; color:#1e293b;">操作出错</h2>
+        <p style="color:#ef4444; font-size:15px; margin-bottom:30px;">{{ error or '未知错误' }}</p>
+        <div class="btn-group" style="justify-content:center;">
+            <a href="javascript:history.back()" class="btn btn-outline">← 返回上一页</a>
+            <a href="/" class="btn btn-primary">返回首页</a>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

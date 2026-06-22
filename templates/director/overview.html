@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}系主任视图 - 预算与风险分析{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <div class="page-title">📊 系主任管理视图</div>
+        <div class="text-muted text-sm mt-1">{{ dept }} · {{ today.year }} 年度预算分析与高风险耗材监管</div>
+    </div>
+    <div class="page-actions">
+        <a href="/export" class="btn btn-primary btn-sm">📤 导出领用数据</a>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">{{ dept }}年度预算总额</div>
+        <div class="stat-value">¥{{ "%.2f"|format(budget_total) }}</div>
+        <div class="stat-sub">{{ today.year }} 财年</div>
+    </div>
+    <div class="stat-card {% if over_budget %}danger{% else %}success{% endif %}">
+        <div class="stat-label">已使用金额</div>
+        <div class="stat-value">¥{{ "%.2f"|format(budget_used) }}</div>
+        <div class="stat-sub">使用率 {{ budget_ratio }}%</div>
+    </div>
+    <div class="stat-card {% if over_budget %}warning{% else %}info{% endif %}">
+        <div class="stat-label">剩余预算</div>
+        <div class="stat-value">¥{{ "%.2f"|format(budget_remaining) }}</div>
+        <div class="stat-sub">
+            {% if over_budget %}
+            <span class="text-danger">⚠️ 已超预算 80%！</span>
+            {% else %}
+            状态正常
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📈 {{ today.year }} 年月度领用金额趋势</div>
+    </div>
+    <div class="card-body" style="padding-bottom:40px;">
+        <div class="month-chart">
+            {% for m in range(1, 13) %}
+            {% set val = budget_by_month.get(m, 0) %}
+            {% set max_val = budget_by_month.values()|max if budget_by_month.values()|list|count > 0 and budget_by_month.values()|max > 0 else 1 %}
+            {% set height_pct = (val / max_val * 100) if max_val > 0 else 2 %}
+            <div class="month-bar" style="height: {{ [height_pct, 2]|max }}%;"
+                 title="{{ month_label(m) }}: ¥{{ '%.2f'|format(val) }}">
+                {% if val > 0 %}
+                <span class="month-bar-value">¥{{ "%.0f"|format(val) }}</span>
+                {% endif %}
+                <span class="month-bar-label">{{ m }}月</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header flex-between">
+        <div class="card-title">⚠️ 高风险耗材领用统计（{{ dept }}）</div>
+    </div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>耗材名称</th>
+                    <th>类别</th>
+                    <th>风险等级</th>
+                    <th>规格</th>
+                    <th>累计领用数量</th>
+                    <th>累计金额</th>
+                    <th>领用次数</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in high_risk_usage %}
+                <tr>
+                    <td><strong>{{ d.supply.name }}</strong></td>
+                    <td>{{ CATEGORY_MAP.get(d.supply.category, d.supply.category) }}</td>
+                    <td><span class="badge badge-{{ d.supply.risk_level }}">{{ RISK_MAP.get(d.supply.risk_level) }}</span></td>
+                    <td class="text-muted text-sm">{{ d.supply.specification or '-' }}</td>
+                    <td style="color:#ef4444; font-weight:600;">{{ d.total_qty }} {{ d.supply.unit }}</td>
+                    <td>¥{{ "%.2f"|format(d.total_amt) }}</td>
+                    <td>{{ d.txn_count }} 次</td>
+                    <td><a href="/supplies/{{ d.supply.id }}" class="btn btn-outline btn-sm">详情</a></td>
+                </tr>
+                {% endfor %}
+                {% if not high_risk_usage %}
+                <tr>
+                    <td colspan="8" class="empty-state">
+                        <div class="empty-state-icon">✅</div>
+                        <div class="empty-state-text">暂无高风险耗材领用记录</div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header flex-between">
+        <div class="card-title">💰 超 ¥1000 大额领用申请记录</div>
+    </div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>申请编号</th>
+                    <th>申请人</th>
+                    <th>关联计划</th>
+                    <th>申请金额</th>
+                    <th>状态</th>
+                    <th>提交时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in over_budget_requests %}
+                <tr>
+                    <td>#{{ r.id }}</td>
+                    <td>{{ r.applicant.full_name }}</td>
+                    <td class="text-sm">{{ r.plan.title }}</td>
+                    <td style="color:#ef4444; font-weight:700;">¥{{ "%.2f"|format(r.total_amount) }}</td>
+                    <td>
+                        {% set cls = 'badge-pending' if r.status == 'pending' else ('badge-approved' if r.status in ['approved','partially_approved'] else ('badge-rejected' if r.status == 'rejected' else 'badge-completed')) %}
+                        <span class="badge {{ cls }}">{{ STATUS_MAP.get(r.status, r.status) }}</span>
+                    </td>
+                    <td class="text-sm text-muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td><a href="/requests/{{ r.id }}" class="btn btn-outline btn-sm">查看</a></td>
+                </tr>
+                {% endfor %}
+                {% if not over_budget_requests %}
+                <tr>
+                    <td colspan="7" class="empty-state">
+                        <div class="empty-state-icon">💰</div>
+                        <div class="empty-state-text">暂无大额领用申请</div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

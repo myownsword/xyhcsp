@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}首页 - 校园实验耗材领用审批系统{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <div class="page-title">欢迎回来，{{ current_user.full_name }} 👋</div>
+        <div class="text-muted text-sm mt-1">今天是 {{ today }}，祝您工作顺利！</div>
+    </div>
+</div>
+
+<div class="stats-grid">
+    {% if current_user.role == 'teacher' %}
+    <div class="stat-card info">
+        <div class="stat-label">我的实验计划</div>
+        <div class="stat-value">{{ stats.total_plans or 0 }}</div>
+        <div class="stat-sub">共创建的实验课程数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">我的领用申请</div>
+        <div class="stat-value">{{ stats.total_requests or 0 }}</div>
+        <div class="stat-sub">累计提交的申请数量</div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-label">待审批</div>
+        <div class="stat-value">{{ stats.pending or 0 }}</div>
+        <div class="stat-sub">等待库管员处理</div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-label">已批准</div>
+        <div class="stat-value">{{ stats.approved or 0 }}</div>
+        <div class="stat-sub">含部分批准，等待发放</div>
+    </div>
+    <div class="stat-card danger">
+        <div class="stat-label">已驳回</div>
+        <div class="stat-value">{{ stats.rejected or 0 }}</div>
+        <div class="stat-sub">需要修改或重新提交</div>
+    </div>
+    {% elif current_user.role == 'keeper' %}
+    <div class="stat-card warning">
+        <div class="stat-label">待审批申请</div>
+        <div class="stat-value">{{ stats.pending_approval or 0 }}</div>
+        <div class="stat-sub">需要您处理审批</div>
+    </div>
+    <div class="stat-card info">
+        <div class="stat-label">待发放耗材</div>
+        <div class="stat-value">{{ stats.waiting_issue or 0 }}</div>
+        <div class="stat-sub">已批准，等待出库</div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-label">耗材品类</div>
+        <div class="stat-value">{{ stats.supplies_count or 0 }}</div>
+        <div class="stat-sub">系统内全部耗材</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">入库批次</div>
+        <div class="stat-value">{{ stats.batches_count or 0 }}</div>
+        <div class="stat-sub">全部批次记录</div>
+    </div>
+    {% elif current_user.role == 'director' %}
+    <div class="stat-card">
+        <div class="stat-label">{{ current_user.department }}年度预算</div>
+        <div class="stat-value">¥ {{ "%.2f"|format(stats.budget_total or 0) }}</div>
+        <div class="stat-sub">本财年总额度</div>
+    </div>
+    <div class="stat-card {% if stats.over_budget %}danger{% else %}success{% endif %}">
+        <div class="stat-label">已使用金额</div>
+        <div class="stat-value">¥ {{ "%.2f"|format(stats.budget_used or 0) }}</div>
+        <div class="stat-sub">使用率 {{ stats.budget_ratio or 0 }}%
+            {% if stats.over_budget %} ⚠️ 超预算预警{% endif %}
+        </div>
+    </div>
+    <div class="stat-card info">
+        <div class="stat-label">部门申请总数</div>
+        <div class="stat-value">{{ stats.dept_requests or 0 }}</div>
+        <div class="stat-sub">{{ current_user.department }}全部申请</div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">快捷操作</div>
+    </div>
+    <div class="card-body">
+        <div class="btn-group">
+            {% if current_user.role == 'teacher' %}
+            <a href="/plans/new" class="btn btn-primary">➕ 创建实验计划</a>
+            <a href="/requests/new" class="btn btn-success">📋 提交领用申请</a>
+            <a href="/supplies" class="btn btn-outline">🔍 查询耗材库存</a>
+            {% elif current_user.role == 'keeper' %}
+            <a href="/requests?status=pending" class="btn btn-warning">📝 待审批 ({{ stats.pending_approval or 0 }})</a>
+            <a href="/requests?status=approved" class="btn btn-success">📦 待发放 ({{ stats.waiting_issue or 0 }})</a>
+            <a href="/supplies/new" class="btn btn-primary">➕ 新增耗材品类</a>
+            <a href="/batches/new" class="btn btn-info">📥 批次入库</a>
+            {% elif current_user.role == 'director' %}
+            <a href="/director/overview" class="btn btn-primary">📊 预算与风险分析</a>
+            <a href="/requests" class="btn btn-outline">📋 查看全部申请</a>
+            <a href="/export" class="btn btn-info">📤 导出报表</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}

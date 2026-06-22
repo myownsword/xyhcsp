@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}{{ supply.name }} - 耗材详情{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <div class="page-title">📦 {{ supply.name }}</div>
+        <div class="text-muted text-sm mt-1">
+            <span class="badge badge-default">{{ CATEGORY_MAP.get(supply.category, supply.category) }}</span>
+            {% if supply.is_high_risk %}
+            <span class="badge badge-{{ supply.risk_level }}">⚠️ {{ RISK_MAP.get(supply.risk_level, supply.risk_level) }}</span>
+            {% else %}
+            <span class="badge badge-low">{{ RISK_MAP.get(supply.risk_level, supply.risk_level) }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="page-actions">
+        <a href="/supplies" class="btn btn-outline btn-sm">← 返回列表</a>
+        {% if current_user.role == 'keeper' %}
+        <a href="/batches/new?supply_id={{ supply.id }}" class="btn btn-success btn-sm">📥 入库新批次</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card success">
+        <div class="stat-label">总库存</div>
+        <div class="stat-value">{{ total_stock }} <span class="text-sm text-muted">{{ supply.unit }}</span></div>
+    </div>
+    <div class="stat-card info">
+        <div class="stat-label">可用库存</div>
+        <div class="stat-value">{{ available }} <span class="text-sm text-muted">{{ supply.unit }}</span></div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-label">已冻结数量</div>
+        <div class="stat-value">{{ total_frozen }} <span class="text-sm text-muted">{{ supply.unit }}</span></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">单价</div>
+        <div class="stat-value">¥{{ "%.2f"|format(supply.unit_price) }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📋 基本信息</div>
+    </div>
+    <div class="card-body">
+        <div class="detail-grid">
+            <div class="detail-item">
+                <div class="detail-label">规格</div>
+                <div class="detail-value">{{ supply.specification or '-' }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">单位</div>
+                <div class="detail-value">{{ supply.unit }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">类别</div>
+                <div class="detail-value">{{ CATEGORY_MAP.get(supply.category, supply.category) }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">高风险</div>
+                <div class="detail-value">
+                    {% if supply.is_high_risk %}<span class="text-danger">⚠️ 是</span>{% else %}否{% endif %}
+                </div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">风险等级</div>
+                <div class="detail-value">{{ RISK_MAP.get(supply.risk_level, supply.risk_level) }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">创建时间</div>
+                <div class="detail-value">{{ supply.created_at.strftime('%Y-%m-%d %H:%M') if supply.created_at else '-' }}</div>
+            </div>
+        </div>
+        {% if supply.description %}
+        <div class="mt-2">
+            <div class="detail-label mb-1">描述说明</div>
+            <div class="text-muted">{{ supply.description }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📦 批次信息</div>
+    </div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>批次号</th>
+                    <th>生产日期</th>
+                    <th>有效期</th>
+                    <th>状态</th>
+                    <th>总数量</th>
+                    <th>可用数量</th>
+                    <th>已冻结</th>
+                    <th>供应商</th>
+                    <th>存放位置</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in supply.batches %}
+                {% set expired = is_batch_expired(b) %}
+                {% set near_expiry = (not expired) and (b.expiry_date - today).days <= 90 %}
+                <tr class="{% if expired %}text-danger{% endif %}">
+                    <td><strong>{{ b.batch_no }}</strong></td>
+                    <td>{{ b.production_date.strftime('%Y-%m-%d') }}</td>
+                    <td>
+                        <span class="{% if expired %}expiry-expired{% elif near_expiry %}expiry-near{% endif %}">
+                            {{ b.expiry_date.strftime('%Y-%m-%d') }}
+                            {% if expired %} ❌ 已过期{% elif near_expiry %} ⚠️ 临期{% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        {% if expired %}
+                        <span class="badge badge-danger">已过期</span>
+                        {% elif near_expiry %}
+                        <span class="badge badge-warning">临期</span>
+                        {% else %}
+                        <span class="badge badge-low">正常</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ b.total_quantity }} {{ supply.unit }}</td>
+                    <td><strong>{{ b.available_quantity }}</strong></td>
+                    <td class="text-warning">{{ b.frozen_quantity }}</td>
+                    <td class="text-muted text-sm">{{ b.supplier or '-' }}</td>
+                    <td class="text-muted text-sm">{{ b.storage_location or '-' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not supply.batches %}
+                <tr>
+                    <td colspan="9" class="empty-state">
+                        <div class="empty-state-icon">📦</div>
+                        <div class="empty-state-text">暂无批次数据</div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📜 最近流水记录（最近20条）</div>
+    </div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>时间</th>
+                    <th>批次</th>
+                    <th>类型</th>
+                    <th>数量</th>
+                    <th>变动前库存</th>
+                    <th>变动后库存</th>
+                    <th>冻结变动</th>
+                    <th>关联</th>
+                    <th>操作人</th>
+                    <th>备注</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in recent_txns %}
+                <tr>
+                    <td class="text-sm">{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td class="text-sm">{{ t.batch.batch_no if t.batch else '-' }}</td>
+                    <td>
+                        <span class="badge {% if t.transaction_type == 'in' %}badge-low{% elif t.transaction_type == 'out' %}badge-danger{% elif t.transaction_type == 'freeze' %}badge-pending{% elif t.transaction_type == 'unfreeze' %}badge-approved{% else %}badge-default{% endif %}">
+                            {{ TXN_TYPE_MAP.get(t.transaction_type, t.transaction_type) }}
+                        </span>
+                    </td>
+                    <td class="{% if t.transaction_type in ['out', 'freeze'] %}text-danger{% else %}text-success{% endif %}">
+                        <strong>
+                            {% if t.transaction_type in ['out', 'freeze'] %}-{% else %}+{% endif %}{{ t.quantity }}
+                        </strong>
+                    </td>
+                    <td class="text-muted text-sm">{{ t.balance_before }}</td>
+                    <td><strong>{{ t.balance_after }}</strong></td>
+                    <td class="text-sm">
+                        {% if t.frozen_after != t.frozen_before %}
+                        {{ t.frozen_before }} → <span class="text-warning">{{ t.frozen_after }}</span>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="text-sm">
+                        {% if t.reference_type %}{{ t.reference_type }} #{{ t.reference_id or '-' }}{% else %}-{% endif %}
+                    </td>
+                    <td class="text-sm">{{ t.operator.full_name if t.operator else '-' }}</td>
+                    <td class="text-muted text-sm">{{ t.remark or '-' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not recent_txns %}
+                <tr>
+                    <td colspan="10" class="empty-state">
+                        <div class="empty-state-icon">📜</div>
+                        <div class="empty-state-text">暂无流水记录</div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

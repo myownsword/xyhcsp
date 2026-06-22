@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}申请 #{{ req.id }} - 详情{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <div class="page-title">📋 领用申请 #{{ req.id }}</div>
+        <div class="text-muted text-sm mt-1">
+            提交时间：{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}
+            {% set cls = 'badge-pending' if req.status == 'pending' else ('badge-approved' if req.status == 'approved' else ('badge-partial' if req.status == 'partially_approved' else ('badge-rejected' if req.status == 'rejected' else 'badge-completed'))) %}
+            <span class="badge {{ cls }} ml-2">{{ STATUS_MAP.get(req.status, req.status) }}</span>
+        </div>
+    </div>
+    <div class="page-actions">
+        <a href="/requests" class="btn btn-outline btn-sm">← 返回列表</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📋 申请信息</div>
+    </div>
+    <div class="card-body">
+        <div class="detail-grid">
+            <div class="detail-item">
+                <div class="detail-label">实验计划</div>
+                <div class="detail-value">
+                    <a href="/plans/{{ req.plan.id }}">{{ req.plan.title }}</a>
+                </div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">申请人</div>
+                <div class="detail-value">{{ req.applicant.full_name }} ({{ req.applicant.department }})</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">紧急程度</div>
+                <div class="detail-value">
+                    {% if req.urgency == 'emergency' %}
+                    <span class="badge badge-danger">🚨 紧急</span>
+                    {% elif req.urgency == 'urgent' %}
+                    <span class="badge badge-warning">⚡ 加急</span>
+                    {% else %}
+                    <span class="badge badge-default">普通</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">申请总金额</div>
+                <div class="detail-value" style="color:#2563eb; font-weight:700;">¥{{ "%.2f"|format(req.total_amount) }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">计划日期</div>
+                <div class="detail-value">{{ req.plan.plan_date.strftime('%Y-%m-%d') }}</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">更新时间</div>
+                <div class="detail-value">{{ req.updated_at.strftime('%Y-%m-%d %H:%M') if req.updated_at else '-' }}</div>
+            </div>
+        </div>
+        {% if req.remark %}
+        <div class="mt-2">
+            <div class="detail-label mb-1">申请备注</div>
+            <div class="text-muted">{{ req.remark }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📦 申请耗材明细</div>
+    </div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>耗材名称</th>
+                    <th>类别</th>
+                    <th>规格</th>
+                    <th>风险</th>
+                    <th>申请数量</th>
+                    <th>批准数量</th>
+                    <th>已发放</th>
+                    <th>待发放</th>
+                    <th>单价</th>
+                    <th>小计</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in req.items %}
+                {% set remaining = item.approved_quantity - item.issued_quantity %}
+                <tr>
+                    <td><strong>{{ item.supply.name }}</strong>
+                        {% if item.remark %}<br><span class="text-muted text-sm">备注：{{ item.remark }}</span>{% endif %}
+                    </td>
+                    <td>{{ CATEGORY_MAP.get(item.supply.category, item.supply.category) }}</td>
+                    <td class="text-muted text-sm">{{ item.supply.specification or '-' }}</td>
+                    <td>
+                        {% if item.supply.is_high_risk %}
+                        <span class="badge badge-{{ item.supply.risk_level }}">⚠️ {{ RISK_MAP.get(item.supply.risk_level) }}</span>
+                        {% else %}
+                        <span class="badge badge-low">低</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.requested_quantity }} {{ item.supply.unit }}</td>
+                    <td style="color:#2563eb;"><strong>{{ item.approved_quantity }}</strong></td>
+                    <td style="color:#10b981;"><strong>{{ item.issued_quantity }}</strong></td>
+                    <td>
+                        {% if remaining > 0 %}
+                        <span class="text-warning"><strong>{{ remaining }}</strong></span>
+                        {% else %}
+                        <span class="text-success">✓ 完成</span>
+                        {% endif %}
+                    </td>
+                    <td>¥{{ "%.2f"|format(item.unit_price_at_approval or item.supply.unit_price) }}</td>
+                    <td>¥{{ "%.2f"|format((item.unit_price_at_approval or item.supply.unit_price) * item.issued_quantity) }}</td>
+                </tr>
+                {% if item_issuances.get(item.id) %}
+                <tr style="background:#f8fafc;">
+                    <td colspan="10" style="padding:8px 20px;">
+                        <div class="text-sm text-muted mb-1">📜 发放记录：</div>
+                        {% for iss in item_issuances[item.id] %}
+                        <div class="flex-between p-2" style="border-bottom:1px dashed #e2e8f0;">
+                            <div class="text-sm">
+                                #{{ iss.id }} | 批次：<strong>{{ iss.batch.batch_no }}</strong> |
+                                数量：<strong>{{ iss.quantity }} {{ item.supply.unit }}</strong> |
+                                库管：{{ iss.keeper.full_name }} |
+                                时间：{{ iss.issued_at.strftime('%Y-%m-%d %H:%M') if iss.issued_at else '-' }}
+                            </div>
+                            <div>
+                                {% if iss.confirmed %}
+                                <span class="badge badge-low">✓ 已确认</span>
+                                {% else %}
+                                <span class="badge badge-pending">待确认</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if req.approvals %}
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📝 审批记录（共 {{ req.approvals|length }} 步）</div>
+    </div>
+    <div class="card-body">
+        <ul class="timeline">
+            {% for a in req.approvals %}
+            <li class="{{ a.decision }}">
+                <div class="timeline-content">
+                    <div class="timeline-header">
+                        <span>
+                            <strong>第 {{ a.step }} 步</strong> -
+                            {% if a.decision == 'approve' %}<span class="text-success">✅ 全部批准</span>
+                            {% elif a.decision == 'partial' %}<span class="text-warning">⚡ 部分批准</span>
+                            {% elif a.decision == 'reject' %}<span class="text-danger">❌ 驳回</span>
+                            {% endif %}
+                            — {{ a.approver.full_name }}
+                            <span class="text-muted">({{ ROLE_MAP.get(a.approver.role) }})</span>
+                        </span>
+                        <span class="text-muted text-sm">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                    </div>
+                    {% if a.comment %}
+                    <div class="timeline-comment">💬 {{ a.comment }}</div>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+{% if can_approve and req.status in ('pending', 'partially_approved') %}
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">✅ 审批操作</div>
+    </div>
+    <div class="card-body approve-section">
+        <form method="post" action="/requests/{{ req.id }}/approve">
+            <div class="alert alert-info text-sm mb-2">
+                ℹ️ 审批通过后，对应数量的库存将被冻结，发放时才会扣减实际库存。驳回将释放所有冻结库存。
+            </div>
+
+            <div class="mb-2">
+                <label style="font-weight:600;">批准数量调整（留空表示按申请量批准/0表示不批准该项）</label>
+            </div>
+            {% for item in req.items %}
+            <div class="issue-row">
+                <div>
+                    <div class="text-sm text-muted">{{ item.supply.name }}</div>
+                    <div class="text-xs text-muted">申请：{{ item.requested_quantity }} {{ item.supply.unit }}</div>
+                </div>
+                <div>
+                    <input type="number" step="0.01" min="0" max="{{ item.requested_quantity }}"
+                           name="approved_qty_{{ item.id }}"
+                           value="{{ item.requested_quantity }}"
+                           class="form-control">
+                </div>
+                <div>
+                    <select name="decision" class="form-control d-inline decision-select">
+                        <option value="approve">✅ 全部批准</option>
+                        <option value="partial">⚡ 部分批准</option>
+                        <option value="reject">❌ 驳回</option>
+                    </select>
+                </div>
+                <div colspan="2">
+                    <textarea name="comment" class="form-control" rows="1" placeholder="审批意见（可选）"></textarea>
+                </div>
+                <div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;">提交审批</button>
+                </div>
+            </div>
+            {% endfor %}
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if can_issue %}
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📦 发放操作</div>
+    </div>
+    <div class="card-body">
+        <form method="post" action="/requests/{{ req.id }}/issue">
+            <div class="form-row mb-2">
+                <div class="form-group">
+                    <label>领用人签字</label>
+                    <input type="text" name="receiver_name" class="form-control" value="{{ req.applicant.full_name }}">
+                </div>
+            </div>
+
+            <div class="alert alert-warning text-sm mb-2">
+                ⚠️ 系统将自动检查：①批次是否过期 ②冻结数量是否充足 ③禁止重复超量确认发放
+            </div>
+
+            {% for item in req.items %}
+            {% set remaining = item.approved_quantity - item.issued_quantity %}
+            {% if remaining > 0 %}
+            <div class="issue-row">
+                <div>
+                    <div style="font-weight:600;">{{ item.supply.name }}</div>
+                    <div class="text-xs text-muted">
+                        批准：{{ item.approved_quantity }} | 已发：{{ item.issued_quantity }} |
+                        <span style="color:#f59e0b;">待发：{{ remaining }} {{ item.supply.unit }}</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-sm text-muted">选择批次（按有效期近远排序）</label>
+                    <select name="batch_id_{{ item.id }}" class="form-control">
+                        <option value="">-- 选择批次 --</option>
+                        {% for b in item_batches.get(item.id, []) %}
+                        <option value="{{ b.id }}">
+                            {{ b.batch_no }} |
+                            效期：{{ b.expiry_date.strftime('%Y-%m-%d') }} |
+                            可用：{{ b.available_quantity - b.frozen_quantity }} |
+                            冻结：{{ b.frozen_quantity }}
+                            {% if (b.expiry_date - today).days <= 90 %} ⚠️临期{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="text-sm text-muted">发放数量</label>
+                    <input type="number" step="0.01" min="0" max="{{ remaining }}"
+                           name="issue_qty_{{ item.id }}" class="form-control"
+                           placeholder="最多 {{ remaining }}">
+                </div>
+                <div>
+                    <label class="text-sm text-muted">&nbsp;</label>
+                    <div style="padding:8px 0;">
+                        <label style="font-size:13px; cursor:pointer;">
+                            <input type="checkbox" name="confirm_{{ item.id }}" checked> 同时确认发放
+                        </label>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="text-success text-sm mb-2">✓ {{ item.supply.name }} 已全部发放完成</div>
+            {% endif %}
+            {% endfor %}
+
+            <div class="form-actions mt-3">
+                <button type="submit" class="btn btn-success">📦 确认发放</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if req.status not in ('rejected', 'completed') and current_user.role in ('keeper', 'director') %}
+<div class="card" style="border:1px solid #fecaca;">
+    <div class="card-body">
+        <form method="post" action="/requests/{{ req.id }}/reject-release" onsubmit="return confirm('确定要驳回此申请并释放所有冻结库存吗？');">
+            <div class="flex-between">
+                <div>
+                    <div class="text-danger" style="font-weight:600;">⚠️ 紧急驳回并释放库存</div>
+                    <div class="text-sm text-muted">此操作将立即释放所有冻结的库存，适用于审批错误或需要撤销的情况</div>
+                </div>
+                <button type="submit" class="btn btn-danger">❌ 驳回并释放库存</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

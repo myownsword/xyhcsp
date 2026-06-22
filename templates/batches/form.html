@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}批次入库{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div class="page-title">📥 耗材批次入库</div>
+    <div class="page-actions">
+        <a href="/supplies" class="btn btn-outline btn-sm">← 返回耗材列表</a>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-body">
+        <form method="post">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>选择耗材 <span class="required">*</span></label>
+                    <select name="supply_id" class="form-control" required>
+                        <option value="">-- 请选择 --</option>
+                        {% for s in supplies %}
+                        <option value="{{ s.id }}" {% if s.id == selected_supply_id %}selected{% endif %}>
+                            {{ s.name }} ({{ s.specification or s.unit }}) - ¥{{ s.unit_price }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>批次号 <span class="required">*</span></label>
+                    <input type="text" name="batch_no" class="form-control" required placeholder="如：H2SO4-2025-001">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>生产日期 <span class="required">*</span></label>
+                    <input type="date" name="production_date" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>有效期至 <span class="required">*</span></label>
+                    <input type="date" name="expiry_date" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>入库数量 <span class="required">*</span></label>
+                    <input type="number" name="total_quantity" step="0.01" min="0.01" class="form-control" required placeholder="请输入数量">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>供应商</label>
+                    <input type="text" name="supplier" class="form-control" placeholder="如：国药集团">
+                </div>
+                <div class="form-group">
+                    <label>存放位置</label>
+                    <input type="text" name="storage_location" class="form-control" placeholder="如：A区危险品柜1号">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <textarea name="remark" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="alert alert-info text-sm">
+                ℹ️ 入库时系统将自动创建入库流水，并将数量添加到可用库存中。
+            </div>
+            <div class="form-actions">
+                <a href="/supplies" class="btn btn-outline">取消</a>
+                <button type="submit" class="btn btn-success">📥 确认入库</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

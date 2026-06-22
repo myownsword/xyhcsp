@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}数据导出{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div class="page-title">📤 数据导出中心</div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">📋 按月份导领用明细 CSV</div>
+    </div>
+    <div class="card-body">
+        <div class="form-row">
+            {% for m in months %}
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px;">
+                <div>
+                    <div style="font-weight:600;">{{ m }}</div>
+                    <div class="text-muted text-sm">领用明细报表</div>
+                </div>
+                <a href="/export/csv?month={{ m }}" class="btn btn-success btn-sm">⬇️ 导出 CSV</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="alert alert-info">
+            <strong>📌 导出说明：</strong>
+            <ul class="mt-1" style="padding-left:20px; font-size:13px;">
+                <li>CSV 文件采用 UTF-8 BOM 编码，可直接用 Excel 打开</li>
+                <li>包含字段：发放单号、申请号、日期、申请人、部门、耗材信息、批次、数量、金额、库管员、确认状态等</li>
+                <li>包含合计金额汇总行</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

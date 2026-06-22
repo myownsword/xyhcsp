@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}领用申请{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div class="page-title">📋 领用申请管理</div>
+    <div class="page-actions">
+        {% if current_user.role == 'teacher' %}
+        <a href="/requests/new" class="btn btn-primary btn-sm">➕ 提交新申请</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form method="get" class="filter-bar">
+            <div class="form-group">
+                <select name="status" class="form-control">
+                    <option value="">全部状态</option>
+                    {% for key, val in STATUS_MAP.items() %}
+                    <option value="{{ key }}" {% if filter_status == key %}selected{% endif %}>{{ val }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">🔍 筛选</button>
+            <a href="/requests" class="btn btn-outline btn-sm">重置</a>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>申请编号</th>
+                    <th>关联计划</th>
+                    <th>申请人</th>
+                    <th>部门</th>
+                    <th>紧急程度</th>
+                    <th>耗材项数</th>
+                    <th>申请金额</th>
+                    <th>状态</th>
+                    <th>提交时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in requests %}
+                <tr>
+                    <td><strong>#{{ r.id }}</strong></td>
+                    <td class="text-sm">{{ r.plan.title if r.plan else '-' }}</td>
+                    <td>{{ r.applicant.full_name }}</td>
+                    <td class="text-muted text-sm">{{ r.applicant.department }}</td>
+                    <td>
+                        {% if r.urgency == 'emergency' %}
+                        <span class="badge badge-danger">🚨 紧急</span>
+                        {% elif r.urgency == 'urgent' %}
+                        <span class="badge badge-warning">⚡ 加急</span>
+                        {% else %}
+                        <span class="badge badge-default">普通</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.items|length }} 项</td>
+                    <td>¥{{ "%.2f"|format(r.total_amount) }}</td>
+                    <td>
+                        {% set cls = 'badge-pending' if r.status == 'pending' else ('badge-approved' if r.status == 'approved' else ('badge-partial' if r.status == 'partially_approved' else ('badge-rejected' if r.status == 'rejected' else 'badge-completed'))) %}
+                        <span class="badge {{ cls }}">{{ STATUS_MAP.get(r.status, r.status) }}</span>
+                    </td>
+                    <td class="text-sm text-muted">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>
+                        <div class="btn-group">
+                            <a href="/requests/{{ r.id }}" class="btn btn-outline btn-sm">查看</a>
+                            {% if r.status == 'pending' and can_approve_list.get(r.id) %}
+                            <span class="badge badge-pending text-sm">待您审批</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not requests %}
+                <tr>
+                    <td colspan="10" class="empty-state">
+                        <div class="empty-state-icon">📋</div>
+                        <div class="empty-state-text">
+                            {% if current_user.role == 'teacher' %}
+                            暂无申请记录，点击右上角「提交新申请」开始
+                            {% else %}
+                            暂无申请记录
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
