@@ -277,6 +277,100 @@ def main():
     for t in txns:
         print(f"     id={t.id} type={t.transaction_type:8s} qty={t.quantity:4.0f} bal={t.balance_before:4.0f}->{t.balance_after:4.0f} fro={t.frozen_before:4.0f}->{t.frozen_after:4.0f} ref={t.reference_type}/{t.reference_id}")
 
+    print()
+    print("=" * 60)
+    print("场景5: 交错占用解冻归属验证（申请甲乙共享同批次，驳回甲不影响乙）")
+    print("=" * 60)
+
+    for b in glove.batches:
+        if b.available_quantity > 0 or b.frozen_quantity > 0:
+            inv.create_transaction(db, b.id, "adjust", 0, operator_id=None,
+                                   reference_type="system", remark="交错测试前清零")
+            b.available_quantity = 0
+            b.frozen_quantity = 0
+    db.commit()
+
+    batch2 = SupplyBatch(
+        supply_id=glove.id,
+        batch_no="TEST-INTERLEAVE-7PCS",
+        production_date=today,
+        expiry_date=expiry,
+        total_quantity=0,
+        available_quantity=0,
+        frozen_quantity=0,
+        supplier="测试",
+        storage_location="测试架",
+        remark="用于验证交错冻结归属"
+    )
+    db.add(batch2)
+    db.flush()
+    inv.create_transaction(db, batch2.id, "in", 7, operator_id=None,
+                           reference_type="system", remark="交错冻结测试入库")
+    db.commit()
+    db.refresh(batch2)
+    print(f"  -> 新建交错测试批次，初始：可用={batch2.available_quantity}，冻结={batch2.frozen_quantity}")
+    check(batch2.available_quantity == 7 and batch2.frozen_quantity == 0,
+          "交错测试批次初始：可用=7 冻结=0")
+
+    logout(s1)
+    logout(s2)
+
+    assert login(s1, "teacher1")
+    plan_a = create_plan(s1, "甲老师 5件申请")
+    rid_a, in_form, err, r_a = submit_request(s1, plan_a, [(glove.id, 5, "甲申请5件")])
+    check(rid_a is not None, f"申请甲提交成功，ID={rid_a}")
+    db.refresh(batch2)
+    check(batch2.frozen_quantity == 5, "申请甲提交后批次冻结=5")
+
+    assert login(s2, "keeper1")
+    req_a = db.query(SupplyRequest).filter(SupplyRequest.id == rid_a).first()
+    item_a = req_a.items[0]
+    r = s2.post(f"{BASE}/requests/{rid_a}/approve", data={
+        "decision": "partial",
+        "comment": "只批3件",
+        f"approved_qty_{item_a.id}": "3",
+    }, allow_redirects=True)
+    db.refresh(batch2)
+    check(batch2.frozen_quantity == 3, "申请甲部分批准3件后，批次冻结=3（释放了2件）")
+    db.expire_all()
+    req_a2 = db.query(SupplyRequest).filter(SupplyRequest.id == rid_a).first()
+    check(req_a2.status == "partially_approved", f"申请甲状态=partially_approved（实际：{req_a2.status}）")
+
+    assert login(s1, "teacher2")
+    plan_b = create_plan(s1, "乙老师 2件申请")
+    rid_b, in_form, err, r_b = submit_request(s1, plan_b, [(glove.id, 2, "乙申请2件")])
+    check(rid_b is not None, f"申请乙提交成功，ID={rid_b}")
+    db.refresh(batch2)
+    check(batch2.frozen_quantity == 5, "申请乙提交后，批次总冻结=5（甲3 + 乙2）")
+
+    assert login(s2, "keeper1")
+    req_b = db.query(SupplyRequest).filter(SupplyRequest.id == rid_b).first()
+    check(req_b.status == "pending", f"申请乙状态=pending（实际：{req_b.status}）")
+
+    r = s2.post(f"{BASE}/requests/{rid_a}/reject-release", data={}, allow_redirects=True)
+    db.refresh(batch2)
+    check(batch2.frozen_quantity == 2,
+          f"驳回申请甲后，批次冻结=2（只释放甲的3件，保留乙的2件；实际：{batch2.frozen_quantity}）")
+
+    db.expire_all()
+    req_a3 = db.query(SupplyRequest).filter(SupplyRequest.id == rid_a).first()
+    check(req_a3.status == "rejected", f"驳回后申请甲状态=rejected（实际：{req_a3.status}）")
+    req_b2 = db.query(SupplyRequest).filter(SupplyRequest.id == rid_b).first()
+    check(req_b2.status == "pending", f"驳回甲不影响乙，申请乙仍为pending（实际：{req_b2.status}）")
+
+    net_a = inv.get_frozen_for_request(db, req_a3)
+    net_b = inv.get_frozen_for_request(db, req_b2)
+    check(net_a == 0, f"驳回后申请甲净冻结=0（实际：{net_a}）")
+    check(net_b == 2, f"驳回后申请乙净冻结=2（实际：{net_b}），归属正确")
+
+    txns_2 = db.query(InventoryTransaction).filter(
+        InventoryTransaction.batch_id == batch2.id
+    ).order_by(InventoryTransaction.id).all()
+    print(f"  -> 交错批次完整流水：")
+    for t in txns_2:
+        print(f"     id={t.id} type={t.transaction_type:8s} qty={t.quantity:4.0f} bal={t.balance_before:4.0f}->{t.balance_after:4.0f} fro={t.frozen_before:4.0f}->{t.frozen_after:4.0f} ref={t.reference_type}/{t.reference_id}")
+    check(len(txns_2) >= 5, "交错批次流水齐全（in / freeze甲 / unfreeze甲2件 / freeze乙 / unfreeze甲3件）")
+
     db.close()
     print()
     print("=" * 60)

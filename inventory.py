@@ -155,16 +155,38 @@ def unfreeze_request_items(
     operator_id: int,
     item_limit: Optional[dict] = None
 ):
-    txns = db.query(models.InventoryTransaction).filter(
+    freeze_txns = db.query(models.InventoryTransaction).filter(
         models.InventoryTransaction.reference_type == "request",
         models.InventoryTransaction.reference_id == request.id,
         models.InventoryTransaction.transaction_type == "freeze"
     ).all()
 
+    unfreeze_txns = db.query(models.InventoryTransaction).filter(
+        models.InventoryTransaction.reference_type == "request",
+        models.InventoryTransaction.reference_id == request.id,
+        models.InventoryTransaction.transaction_type == "unfreeze"
+    ).all()
+
+    issuances = db.query(models.SupplyIssuance).filter(
+        models.SupplyIssuance.request_id == request.id
+    ).all()
+
+    freeze_by_batch = {}
+    for t in freeze_txns:
+        freeze_by_batch[t.batch_id] = freeze_by_batch.get(t.batch_id, 0.0) + t.quantity
+
+    unfreeze_by_batch = {}
+    for t in unfreeze_txns:
+        unfreeze_by_batch[t.batch_id] = unfreeze_by_batch.get(t.batch_id, 0.0) + t.quantity
+
+    issued_by_batch = {}
+    for iss in issuances:
+        issued_by_batch[iss.batch_id] = issued_by_batch.get(iss.batch_id, 0.0) + iss.quantity
+
     unfrozen_totals = {}
-    for txn in txns:
+    for batch_id, total_freeze in freeze_by_batch.items():
         batch = db.query(models.SupplyBatch).filter(
-            models.SupplyBatch.id == txn.batch_id
+            models.SupplyBatch.id == batch_id
         ).first()
         if not batch:
             continue
@@ -174,14 +196,15 @@ def unfreeze_request_items(
         if item_limit is not None and item_supply_id not in item_limit:
             continue
 
-        issued_qty = 0.0
-        for iss in db.query(models.SupplyIssuance).filter(
-            models.SupplyIssuance.request_id == request.id,
-            models.SupplyIssuance.batch_id == txn.batch_id
-        ).all():
-            issued_qty += iss.quantity
+        total_unfrozen = unfreeze_by_batch.get(batch_id, 0.0)
+        total_issued = issued_by_batch.get(batch_id, 0.0)
 
-        eligible = max(0.0, txn.quantity - issued_qty)
+        net_frozen = max(0.0, total_freeze - total_unfrozen - total_issued)
+        if net_frozen <= 0:
+            continue
+
+        eligible = net_frozen
+
         if item_limit is not None:
             allowed = item_limit.get(item_supply_id)
             if allowed is not None:
@@ -191,13 +214,15 @@ def unfreeze_request_items(
 
         if eligible <= 0:
             continue
+
         if batch.frozen_quantity < eligible:
             eligible = batch.frozen_quantity
+
         if eligible <= 0:
             continue
 
         create_transaction(
-            db, txn.batch_id, "unfreeze", eligible,
+            db, batch_id, "unfreeze", eligible,
             operator_id=operator_id,
             reference_type="request",
             reference_id=request.id,
@@ -308,31 +333,58 @@ def get_recent_transactions(db: Session, supply_id: int, limit: int = 10) -> Lis
 
 
 def get_frozen_for_request(db: Session, request: models.SupplyRequest, supply_id: Optional[int] = None) -> float:
-    q = db.query(models.InventoryTransaction).filter(
+    freeze_txns = db.query(models.InventoryTransaction).filter(
         models.InventoryTransaction.reference_type == "request",
-        models.InventoryTransaction.reference_id == request.id
-    )
-    total = 0.0
-    for txn in q.all():
-        if txn.transaction_type == "freeze":
-            if supply_id is None:
-                total += txn.quantity
-            else:
-                batch = db.query(models.SupplyBatch).filter(
-                    models.SupplyBatch.id == txn.batch_id
-                ).first()
-                if batch and batch.supply_id == supply_id:
-                    total += txn.quantity
-        elif txn.transaction_type == "unfreeze":
-            if supply_id is None:
-                total -= txn.quantity
-            else:
-                batch = db.query(models.SupplyBatch).filter(
-                    models.SupplyBatch.id == txn.batch_id
-                ).first()
-                if batch and batch.supply_id == supply_id:
-                    total -= txn.quantity
-    return max(0.0, total)
+        models.InventoryTransaction.reference_id == request.id,
+        models.InventoryTransaction.transaction_type == "freeze"
+    ).all()
+
+    unfreeze_txns = db.query(models.InventoryTransaction).filter(
+        models.InventoryTransaction.reference_type == "request",
+        models.InventoryTransaction.reference_id == request.id,
+        models.InventoryTransaction.transaction_type == "unfreeze"
+    ).all()
+
+    issuances = db.query(models.SupplyIssuance).filter(
+        models.SupplyIssuance.request_id == request.id
+    ).all()
+
+    freeze_by_batch = {}
+    for t in freeze_txns:
+        if supply_id is not None:
+            batch = db.query(models.SupplyBatch).filter(
+                models.SupplyBatch.id == t.batch_id
+            ).first()
+            if not batch or batch.supply_id != supply_id:
+                continue
+        freeze_by_batch[t.batch_id] = freeze_by_batch.get(t.batch_id, 0.0) + t.quantity
+
+    unfreeze_by_batch = {}
+    for t in unfreeze_txns:
+        if supply_id is not None:
+            batch = db.query(models.SupplyBatch).filter(
+                models.SupplyBatch.id == t.batch_id
+            ).first()
+            if not batch or batch.supply_id != supply_id:
+                continue
+        unfreeze_by_batch[t.batch_id] = unfreeze_by_batch.get(t.batch_id, 0.0) + t.quantity
+
+    issued_by_batch = {}
+    for iss in issuances:
+        if supply_id is not None:
+            batch = db.query(models.SupplyBatch).filter(
+                models.SupplyBatch.id == iss.batch_id
+            ).first()
+            if not batch or batch.supply_id != supply_id:
+                continue
+        issued_by_batch[iss.batch_id] = issued_by_batch.get(iss.batch_id, 0.0) + iss.quantity
+
+    total_net = 0.0
+    for batch_id, f in freeze_by_batch.items():
+        u = unfreeze_by_batch.get(batch_id, 0.0)
+        i = issued_by_batch.get(batch_id, 0.0)
+        total_net += max(0.0, f - u - i)
+    return total_net
 
 
 def can_approve(user: models.User, request: models.SupplyRequest) -> bool:
