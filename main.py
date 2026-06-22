@@ -573,10 +573,14 @@ async def request_create(
             "error": "请至少添加一项耗材申请"
         })
 
+    supply_qty_sum = {}
     for i, sid in enumerate(supply_ids):
+        supply_qty_sum[sid] = supply_qty_sum.get(sid, 0.0) + quantities[i]
+
+    for sid, qty_sum in supply_qty_sum.items():
         avail = inv.get_supply_total_available(db, sid)
-        if avail < quantities[i]:
-            supply = db.query(models.Supply).filter(models.Supply.id == sid).first()
+        if avail < qty_sum:
+            supply_obj = db.query(models.Supply).filter(models.Supply.id == sid).first()
             plans = db.query(models.ExperimentPlan).filter(
                 models.ExperimentPlan.creator_id == current_user.id
             ).order_by(models.ExperimentPlan.plan_date.desc()).all()
@@ -594,7 +598,7 @@ async def request_create(
                 "ROLE_MAP": ROLE_MAP,
                 "URGENCY_MAP": URGENCY_MAP,
                 "CATEGORY_MAP": CATEGORY_MAP,
-                "error": f"耗材【{supply.name}】可用库存不足（可用 {avail} {supply.unit}），申请数量 {quantities[i]} {supply.unit}"
+                "error": f"耗材【{supply_obj.name}】可用库存不足（可用 {avail} {supply_obj.unit}），申请总量 {qty_sum} {supply_obj.unit}（多行已汇总）"
             })
 
     req = models.SupplyRequest(
@@ -608,6 +612,7 @@ async def request_create(
     db.flush()
 
     total = 0.0
+    item_qty_by_supply = {}
     for i, sid in enumerate(supply_ids):
         supply = db.query(models.Supply).filter(models.Supply.id == sid).first()
         item = models.RequestItem(
@@ -618,8 +623,36 @@ async def request_create(
         )
         db.add(item)
         total += supply.unit_price * quantities[i]
+        item_qty_by_supply[sid] = item_qty_by_supply.get(sid, 0.0) + quantities[i]
 
     req.total_amount = total
+    db.flush()
+
+    try:
+        inv.freeze_request_items(
+            db, req, item_qty_by_supply, current_user.id, key_by_supply_id=True)
+    except ValueError as e:
+        db.rollback()
+        plans = db.query(models.ExperimentPlan).filter(
+            models.ExperimentPlan.creator_id == current_user.id
+        ).order_by(models.ExperimentPlan.plan_date.desc()).all()
+        supplies = db.query(models.Supply).order_by(models.Supply.name).all()
+        supply_avail = {}
+        for s in supplies:
+            supply_avail[s.id] = inv.get_supply_total_available(db, s.id)
+        return templates.TemplateResponse("requests/form.html", {
+            "request": request,
+            "current_user": current_user,
+            "plans": plans,
+            "selected_plan_id": plan_id,
+            "supplies": supplies,
+            "supply_avail": supply_avail,
+            "ROLE_MAP": ROLE_MAP,
+            "URGENCY_MAP": URGENCY_MAP,
+            "CATEGORY_MAP": CATEGORY_MAP,
+            "error": f"冻结库存失败：{e}"
+        })
+
     db.commit()
     return RedirectResponse(f"/requests/{req.id}", status_code=303)
 
@@ -707,66 +740,46 @@ async def request_approve(
     )
     db.add(approval)
 
-    if decision == "approve":
-        item_quantities = {}
+    if decision in ("approve", "partial"):
+        requested_by_supply = {}
+        approved_by_supply = {}
         for item in req.items:
+            requested_by_supply[item.supply_id] = requested_by_supply.get(
+                item.supply_id, 0.0) + item.requested_quantity
+
             key = f"approved_qty_{item.id}"
-            if key in form_data and form_data[key]:
-                try:
-                    qty = float(form_data[key])
-                    qty = min(qty, item.requested_quantity)
-                except ValueError:
+            if decision == "approve":
+                if key in form_data and form_data[key]:
+                    try:
+                        qty = float(form_data[key])
+                        qty = min(qty, item.requested_quantity)
+                    except ValueError:
+                        qty = item.requested_quantity
+                else:
                     qty = item.requested_quantity
             else:
-                qty = item.requested_quantity
-
-            avail = inv.get_supply_total_available(db, item.supply_id)
-            qty = min(qty, avail)
-            item.approved_quantity = qty
-            item.unit_price_at_approval = item.supply.unit_price
-            item_quantities[item.id] = qty
-
-        try:
-            inv.freeze_request_items(db, req, item_quantities, current_user.id)
-        except ValueError as e:
-            db.rollback()
-            return templates.TemplateResponse("error.html", {
-                "request": request,
-                "current_user": current_user,
-                "error": f"冻结库存失败：{e}",
-                "ROLE_MAP": ROLE_MAP
-            })
-
-        all_full = all(
-            item.approved_quantity >= item.requested_quantity
-            for item in req.items
-        )
-        req.status = "approved" if all_full else "partially_approved"
-
-    elif decision == "reject":
-        inv.unfreeze_request_items(db, req, current_user.id)
-        req.status = "rejected"
-
-    elif decision == "partial":
-        item_quantities = {}
-        for item in req.items:
-            key = f"approved_qty_{item.id}"
-            if key in form_data and form_data[key]:
-                try:
-                    qty = float(form_data[key])
-                except ValueError:
+                if key in form_data and form_data[key]:
+                    try:
+                        qty = float(form_data[key])
+                    except ValueError:
+                        qty = 0
+                else:
                     qty = 0
-            else:
-                qty = 0
-            qty = max(0, min(qty, item.requested_quantity))
-            avail = inv.get_supply_total_available(db, item.supply_id)
-            qty = min(qty, avail)
+                qty = max(0.0, min(qty, item.requested_quantity))
+
+            frozen_avail = inv.get_frozen_for_request(db, req, item.supply_id)
+            issued_qty = item.issued_quantity
+            max_allowed = frozen_avail + issued_qty
+            qty = min(qty, max_allowed)
+            qty = max(0.0, qty)
+
             item.approved_quantity = qty
             item.unit_price_at_approval = item.supply.unit_price
-            item_quantities[item.id] = qty
+            approved_by_supply[item.supply_id] = approved_by_supply.get(
+                item.supply_id, 0.0) + qty
 
-        total_approved = sum(item.approved_quantity for item in req.items)
-        if total_approved <= 0:
+        total_approved = sum(approved_by_supply.values())
+        if decision == "partial" and total_approved <= 0:
             db.rollback()
             return templates.TemplateResponse("error.html", {
                 "request": request,
@@ -775,18 +788,34 @@ async def request_approve(
                 "ROLE_MAP": ROLE_MAP
             })
 
-        try:
-            inv.freeze_request_items(db, req, item_quantities, current_user.id)
-        except ValueError as e:
-            db.rollback()
-            return templates.TemplateResponse("error.html", {
-                "request": request,
-                "current_user": current_user,
-                "error": f"冻结库存失败：{e}",
-                "ROLE_MAP": ROLE_MAP
-            })
+        unfreeze_limit = {}
+        for sid, total_req in requested_by_supply.items():
+            total_appr = approved_by_supply.get(sid, 0.0)
+            if total_appr < total_req:
+                issued_total = sum(
+                    it.issued_quantity for it in req.items if it.supply_id == sid)
+                should_remain_frozen = max(0.0, total_appr - issued_total)
+                currently_frozen = inv.get_frozen_for_request(db, req, sid)
+                to_unfreeze = max(0.0, currently_frozen - should_remain_frozen)
+                if to_unfreeze > 0:
+                    unfreeze_limit[sid] = to_unfreeze
 
-        req.status = "partially_approved"
+        if unfreeze_limit:
+            inv.unfreeze_request_items(
+                db, req, current_user.id, item_limit=unfreeze_limit)
+
+        if decision == "approve":
+            all_full = all(
+                (item.approved_quantity + 1e-6) >= item.requested_quantity
+                for item in req.items
+            )
+            req.status = "approved" if all_full else "partially_approved"
+        else:
+            req.status = "partially_approved"
+
+    elif decision == "reject":
+        inv.unfreeze_request_items(db, req, current_user.id)
+        req.status = "rejected"
 
     db.commit()
     return RedirectResponse(f"/requests/{req.id}", status_code=303)

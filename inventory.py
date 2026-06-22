@@ -115,15 +115,26 @@ def freeze_request_items(
     db: Session,
     request: models.SupplyRequest,
     item_quantities: dict,
-    operator_id: int
+    operator_id: int,
+    key_by_supply_id: bool = False
 ):
-    for item in request.items:
-        qty = item_quantities.get(item.id, 0)
-        if qty <= 0:
-            continue
+    if key_by_supply_id:
+        supply_qtys = dict(item_quantities)
+    else:
+        supply_qtys = {}
+        item_by_id = {it.id: it for it in request.items}
+        for item_id, qty in item_quantities.items():
+            item = item_by_id.get(item_id)
+            if not item or qty <= 0:
+                continue
+            supply_qtys[item.supply_id] = supply_qtys.get(item.supply_id, 0.0) + qty
 
-        allocations = allocate_batches_for_quantity(db, item.supply_id, qty)
-        remaining = qty
+    for supply_id, total_qty in supply_qtys.items():
+        if total_qty <= 0:
+            continue
+        allocations = allocate_batches_for_quantity(db, supply_id, total_qty)
+        remaining = total_qty
+        supply_name = ""
         for batch, take in allocations:
             if remaining <= 0:
                 break
@@ -132,15 +143,17 @@ def freeze_request_items(
                 operator_id=operator_id,
                 reference_type="request",
                 reference_id=request.id,
-                remark=f"申请 #{request.id} 冻结 {item.supply.name}"
+                remark=f"申请 #{request.id} 冻结 {batch.supply.name}"
             )
+            supply_name = batch.supply.name
             remaining -= take
 
 
 def unfreeze_request_items(
     db: Session,
     request: models.SupplyRequest,
-    operator_id: int
+    operator_id: int,
+    item_limit: Optional[dict] = None
 ):
     txns = db.query(models.InventoryTransaction).filter(
         models.InventoryTransaction.reference_type == "request",
@@ -148,18 +161,49 @@ def unfreeze_request_items(
         models.InventoryTransaction.transaction_type == "freeze"
     ).all()
 
+    unfrozen_totals = {}
     for txn in txns:
         batch = db.query(models.SupplyBatch).filter(
             models.SupplyBatch.id == txn.batch_id
         ).first()
-        if batch and batch.frozen_quantity >= txn.quantity:
-            create_transaction(
-                db, txn.batch_id, "unfreeze", txn.quantity,
-                operator_id=operator_id,
-                reference_type="request",
-                reference_id=request.id,
-                remark=f"申请 #{request.id} 解冻 {batch.supply.name}"
-            )
+        if not batch:
+            continue
+
+        item_supply_id = batch.supply_id
+
+        if item_limit is not None and item_supply_id not in item_limit:
+            continue
+
+        issued_qty = 0.0
+        for iss in db.query(models.SupplyIssuance).filter(
+            models.SupplyIssuance.request_id == request.id,
+            models.SupplyIssuance.batch_id == txn.batch_id
+        ).all():
+            issued_qty += iss.quantity
+
+        eligible = max(0.0, txn.quantity - issued_qty)
+        if item_limit is not None:
+            allowed = item_limit.get(item_supply_id)
+            if allowed is not None:
+                already_unfrozen = unfrozen_totals.get(item_supply_id, 0.0)
+                can_unfreeze = max(0.0, allowed - already_unfrozen)
+                eligible = min(eligible, can_unfreeze)
+
+        if eligible <= 0:
+            continue
+        if batch.frozen_quantity < eligible:
+            eligible = batch.frozen_quantity
+        if eligible <= 0:
+            continue
+
+        create_transaction(
+            db, txn.batch_id, "unfreeze", eligible,
+            operator_id=operator_id,
+            reference_type="request",
+            reference_id=request.id,
+            remark=f"申请 #{request.id} 解冻剩余冻结 {batch.supply.name}"
+        )
+        unfrozen_totals[item_supply_id] = unfrozen_totals.get(item_supply_id, 0.0) + eligible
 
 
 def issue_from_frozen(
@@ -261,6 +305,34 @@ def get_recent_transactions(db: Session, supply_id: int, limit: int = 10) -> Lis
     ).order_by(
         models.InventoryTransaction.created_at.desc()
     ).limit(limit).all()
+
+
+def get_frozen_for_request(db: Session, request: models.SupplyRequest, supply_id: Optional[int] = None) -> float:
+    q = db.query(models.InventoryTransaction).filter(
+        models.InventoryTransaction.reference_type == "request",
+        models.InventoryTransaction.reference_id == request.id
+    )
+    total = 0.0
+    for txn in q.all():
+        if txn.transaction_type == "freeze":
+            if supply_id is None:
+                total += txn.quantity
+            else:
+                batch = db.query(models.SupplyBatch).filter(
+                    models.SupplyBatch.id == txn.batch_id
+                ).first()
+                if batch and batch.supply_id == supply_id:
+                    total += txn.quantity
+        elif txn.transaction_type == "unfreeze":
+            if supply_id is None:
+                total -= txn.quantity
+            else:
+                batch = db.query(models.SupplyBatch).filter(
+                    models.SupplyBatch.id == txn.batch_id
+                ).first()
+                if batch and batch.supply_id == supply_id:
+                    total -= txn.quantity
+    return max(0.0, total)
 
 
 def can_approve(user: models.User, request: models.SupplyRequest) -> bool:

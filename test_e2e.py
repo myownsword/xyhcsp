@@ -331,9 +331,11 @@ def test_scenario3_partial_approve():
 
     s1_after = get_supply_info(s1_id)
     s2_after = get_supply_info(s2_id)
-    log(f"部分批准后: {s1_name} 冻结={s1_after['frozen']}(应=3), {s2_name} 冻结={s2_after['frozen']}(应=6)",
-        s1_after['frozen'] == it0_qty_partial and s2_after['frozen'] == 6,
-        f"实际冻结: {s1_after['frozen']}, {s2_after['frozen']}")
+    expected_s1_frozen_after_approve = s1_before["frozen"] + it0_qty_partial
+    expected_s2_frozen_after_approve = s2_before["frozen"] + 6
+    log(f"部分批准后: {s1_name} 冻结={s1_after['frozen']}(应={expected_s1_frozen_after_approve}), {s2_name} 冻结={s2_after['frozen']}(应={expected_s2_frozen_after_approve})",
+        s1_after['frozen'] == expected_s1_frozen_after_approve and s2_after['frozen'] == expected_s2_frozen_after_approve,
+        f"实际冻结: {s1_after['frozen']}, {s2_after['frozen']}, 申请前基线: s1={s1_before['frozen']}, s2={s2_before['frozen']}")
 
     db = SessionLocal()
     req = db.query(SupplyRequest).filter(SupplyRequest.id == req_id).first()
@@ -370,13 +372,14 @@ def test_scenario3_partial_approve():
 
     s1_final = get_supply_info(s1_id)
     s2_final = get_supply_info(s2_id)
-    expected_remaining_frozen_s1 = it0_qty_partial - it0_issue_qty
-    log(f"发放后: {s1_name} 剩余冻结={s1_final['frozen']}(应={expected_remaining_frozen_s1}, 因为只发了2/3)",
+    expected_remaining_frozen_s1 = s1_before["frozen"] + (it0_qty_partial - it0_issue_qty)
+    expected_remaining_frozen_s2 = s2_before["frozen"] + 0
+    log(f"发放后: {s1_name} 剩余冻结={s1_final['frozen']}(应={expected_remaining_frozen_s1}, 因为只发了{it0_issue_qty}/{it0_qty_partial})",
         s1_final['frozen'] == expected_remaining_frozen_s1,
-        f"实际: {s1_final['frozen']}, 预期: {expected_remaining_frozen_s1}")
-    log(f"发放后: {s2_name} 剩余冻结={s2_final['frozen']}(应=0, 全部发完)",
-        s2_final['frozen'] == 0,
-        f"实际: {s2_final['frozen']}")
+        f"实际: {s1_final['frozen']}, 预期: {expected_remaining_frozen_s1}, 申请前基线: {s1_before['frozen']}")
+    log(f"发放后: {s2_name} 剩余冻结={s2_final['frozen']}(应={expected_remaining_frozen_s2}, 全部发完)",
+        s2_final['frozen'] == expected_remaining_frozen_s2,
+        f"实际: {s2_final['frozen']}, 预期: {expected_remaining_frozen_s2}, 申请前基线: {s2_before['frozen']}")
 
     ts.logout()
 
